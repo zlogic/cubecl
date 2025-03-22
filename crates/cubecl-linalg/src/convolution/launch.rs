@@ -1,5 +1,5 @@
 use cubecl_core::{
-    Runtime,
+    CubeCount, Runtime,
     client::ComputeClient,
     prelude::{Numeric, TensorArg},
 };

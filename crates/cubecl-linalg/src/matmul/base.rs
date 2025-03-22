@@ -130,8 +130,7 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
             )
         }
         Strategy::Tiling2D(config) => {
-            tiling2d::launch_ref::<R, EG::Numeric>(client, lhs, rhs, out, config.clone());
-            Ok(())
+            tiling2d::launch_ref::<R, EG::Numeric>(client, lhs, rhs, out, config.clone())
         }
         Strategy::Naive => {
             naive::launch_ref::<R, EG::Numeric>(client, lhs, rhs, out)?;
@@ -153,9 +152,9 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
                     }
                     _ => panic!("{err:?}"),
                 }
+            } else {
+                Ok(())
             }
-
-            Ok(())
         }
     }
 }

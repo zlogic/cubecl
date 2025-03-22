@@ -43,7 +43,7 @@ pub(crate) struct AutotuneOutcome {
 enum AutotuneMessage<K> {
     Done {
         key: K,
-        fastest_index: usize,
+        fastest_index: Option<usize>,
         #[cfg(autotune_persistent_cache)]
         checksum: String,
         #[cfg(autotune_persistent_cache)]
@@ -174,7 +174,7 @@ impl<K: AutotuneKey> Tuner<K> {
             sender
                 .try_send(AutotuneMessage::Done {
                     key,
-                    fastest_index: autotunables[0].0,
+                    fastest_index: Some(autotunables[0].0),
                     #[cfg(autotune_persistent_cache)]
                     checksum: tunables.compute_checksum(),
                     #[cfg(autotune_persistent_cache)]
@@ -210,14 +210,23 @@ impl<K: AutotuneKey> Tuner<K> {
                 bench_results.push(result);
             }
 
-            // Panic if all tuners panicked.
-            #[cfg(all(feature = "std", not(target_family = "wasm")))]
+            // Return empty result if all autotuners failed.
             if bench_results.iter().all(|result| result.is_err()) {
-                let first_error = bench_results.into_iter().next().unwrap().err().unwrap();
-
-                match first_error {
-                    AutotuneError::Unknown(reason) => panic!("{reason}"),
-                }
+                sender
+                    .send(AutotuneMessage::Done {
+                        key,
+                        fastest_index: None,
+                        #[cfg(autotune_persistent_cache)]
+                        checksum,
+                        #[cfg(autotune_persistent_cache)]
+                        results: bench_results
+                            .into_iter()
+                            .map(|result| result.map_err(|err| format!("{err:?}")))
+                            .collect(),
+                    })
+                    .await
+                    .expect("Autotune results channel closed");
+                return;
             }
 
             // Finds the fastest operation (by the median time).
@@ -260,7 +269,7 @@ impl<K: AutotuneKey> Tuner<K> {
             sender
                 .send(AutotuneMessage::Done {
                     key,
-                    fastest_index,
+                    fastest_index: Some(fastest_index),
                     #[cfg(autotune_persistent_cache)]
                     checksum,
                     #[cfg(autotune_persistent_cache)]

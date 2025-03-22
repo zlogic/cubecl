@@ -7,6 +7,7 @@ use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 pub enum ConvLaunchError {
     Matmul(MatmulLaunchError),
     Groups(usize),
+    CubeCountTooLarge,
     Unknown,
 }
 
@@ -21,6 +22,9 @@ impl Debug for ConvLaunchError {
                     f,
                     "Unable to launch matmul because groups must be one, is actually {groups}",
                 )
+            }
+            ConvLaunchError::CubeCountTooLarge => {
+                write!(f, "The cube count is larger than the max supported.")
             }
             ConvLaunchError::Unknown => write!(f, "Unknown"),
         }

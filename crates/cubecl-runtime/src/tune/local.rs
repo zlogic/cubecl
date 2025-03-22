@@ -1,4 +1,4 @@
-use super::{AutotuneKey, TunableSet, Tuner};
+use super::{AutotuneError, AutotuneKey, TunableSet, Tuner};
 use crate::{
     channel::ComputeChannel, client::ComputeClient, server::ComputeServer, tune::TuneCacheResult,
 };
@@ -50,7 +50,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
         client: &ComputeClient<S, C>,
         operations: &TunableSet<AK, In, Out>,
         inputs: In,
-    ) -> Out
+    ) -> Result<Out, AutotuneError>
     where
         S: ComputeServer + 'static,
         C: ComputeChannel<S> + 'static,
@@ -61,10 +61,12 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
         if let Some(map) = self.state.read().as_ref() {
             if let Some(tuner) = map.get(id) {
                 if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
-                    let op = operations.fastest(fastest_index);
-                    return op
-                        .execute(inputs)
-                        .expect("Should run when selected by autotune.");
+                    return if let Some(fastest_index) = fastest_index {
+                        let op = operations.fastest(fastest_index);
+                        op.execute(inputs)
+                    } else {
+                        Err(AutotuneError::Unknown("All autotuners failed".into()))
+                    };
                 }
             }
         }
@@ -99,12 +101,17 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
         };
 
         match fastest {
-            TuneCacheResult::Hit { fastest_index } => {
-                return operations
-                    .fastest(fastest_index)
-                    .execute(inputs)
-                    .expect("Should run when selected by autotune.");
+            TuneCacheResult::Hit {
+                fastest_index: Some(fastest_index),
+            } => {
+                return operations.fastest(fastest_index).execute(inputs);
             }
+            TuneCacheResult::Hit {
+                fastest_index: None,
+            } => {
+                return Err(AutotuneError::Unknown("All autotuners failed".into()));
+            }
+            TuneCacheResult::Hit { fastest_index } => {}
             TuneCacheResult::Miss => {
                 if run_autotune {
                     // We don't know the results yet, start autotuning.
@@ -147,9 +154,18 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
 
             // Check again what the fastest option is, new results might have come in.
             match tuner.fastest(&key) {
-                TuneCacheResult::Hit { fastest_index } => {
+                TuneCacheResult::Hit {
+                    fastest_index: Some(fastest_index),
+                } => {
                     // Theres a known good value - just run it.
                     fastest_index
+                }
+                TuneCacheResult::Hit {
+                    fastest_index: None,
+                } => {
+                    // All autotuners failed; this can happen when an autotuner calls another
+                    // autotuner.
+                    return Err(AutotuneError::Unknown("All autotuners failed".into()));
                 }
                 TuneCacheResult::Pending => {
                     // If we still don't know, just execute a default index.
@@ -173,9 +189,6 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             }
         };
 
-        operations
-            .fastest(fastest)
-            .execute(inputs)
-            .expect("Should run when selected by autotune.")
+        operations.fastest(fastest).execute(inputs)
     }
 }

@@ -3,9 +3,12 @@ use std::cmp::max;
 use cubecl_core::prelude::*;
 
 use crate::{
-    matmul::kernels::tiling2d::{
-        base::tiling2d_cube_kernel,
-        config::{CubeTiling2dConfig, tiling2d_cube_count, tiling2d_cube_dim},
+    matmul::kernels::{
+        MatmulAvailabilityError, MatmulLaunchError,
+        tiling2d::{
+            base::tiling2d_cube_kernel,
+            config::{CubeTiling2dConfig, tiling2d_cube_count, tiling2d_cube_dim},
+        },
     },
     tensor::{MatrixLayout, TensorHandle, into_contiguous, matrix_layout},
 };
@@ -19,10 +22,10 @@ pub fn matmul_tiling_2d<R: Runtime, F: Float>(
     rhs: TensorHandle<R, F>,
     out: TensorHandle<R, F>,
     config: Tiling2dConfig,
-) -> TensorHandle<R, F> {
-    matmul_tiling_2d_ref::<R, F>(client, &lhs.as_ref(), &rhs.as_ref(), &out.as_ref(), config);
+) -> Result<TensorHandle<R, F>, MatmulLaunchError> {
+    matmul_tiling_2d_ref::<R, F>(client, &lhs.as_ref(), &rhs.as_ref(), &out.as_ref(), config)?;
 
-    out
+    Ok(out)
 }
 
 /// Matrix multiplication using tiling 2d algorithm.
@@ -32,7 +35,7 @@ pub fn matmul_tiling_2d_ref<R: Runtime, N: Numeric>(
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
     config: Tiling2dConfig,
-) {
+) -> Result<(), MatmulLaunchError> {
     assert!(
         N::size().unwrap() * config.block_size_k * max(config.block_size_m, config.block_size_n)
             <= client
@@ -85,7 +88,7 @@ fn matmul_tiling_2d_ref_no_check<R: Runtime, N: Numeric>(
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
     config: Tiling2dConfig,
-) {
+) -> Result<(), MatmulLaunchError> {
     let rank = lhs.strides.len();
 
     let m = lhs.shape[rank - 2];
@@ -125,6 +128,14 @@ fn matmul_tiling_2d_ref_no_check<R: Runtime, N: Numeric>(
     let out_vectorization = vectorization(n);
 
     let cube_count = tiling2d_cube_count(out.shape, &config);
+    if let CubeCount::Static(x, y, z) = cube_count {
+        let (max_x, max_y, max_z) = R::max_cube_count();
+        if x > max_x || y > max_y || z > max_z {
+            return Err(MatmulLaunchError::Unavailable(
+                MatmulAvailabilityError::CubeCountTooBig(cube_count),
+            ));
+        }
+    }
     let cube_dim = tiling2d_cube_dim(&config);
     let cube_config = CubeTiling2dConfig::new(&config, m, k, n, lhs_transposed, rhs_transposed);
 
@@ -139,4 +150,5 @@ fn matmul_tiling_2d_ref_no_check<R: Runtime, N: Numeric>(
             cube_config,
         );
     }
+    Ok(())
 }

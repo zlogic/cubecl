@@ -16,7 +16,7 @@ use hashbrown::HashMap;
 pub(crate) enum CacheEntry {
     Done {
         checksum: ChecksumState,
-        fastest_index: usize,
+        fastest_index: Option<usize>,
     },
     Pending,
 }
@@ -41,7 +41,7 @@ pub(crate) struct PersistentCacheKey<K> {
 #[cfg(autotune_persistent_cache)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub(crate) struct PersistentCacheValue {
-    fastest_index: usize,
+    fastest_index: Option<usize>,
     results: Vec<Result<AutotuneOutcome, String>>,
 }
 
@@ -59,7 +59,7 @@ pub enum TuneCacheResult {
     /// An operation is found.
     Hit {
         /// The index of the fastest operation to execute.
-        fastest_index: usize,
+        fastest_index: Option<usize>,
     },
     /// The operation might be cached, but we don't know yet whether the checksum is valid.
     Unchecked,
@@ -154,7 +154,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         self.in_memory_cache.insert(key, CacheEntry::Pending);
     }
 
-    pub(crate) fn cache_insert(&mut self, key: K, fastest_index: usize) {
+    pub(crate) fn cache_insert(&mut self, key: K, fastest_index: Option<usize>) {
         self.in_memory_cache.insert(
             key,
             CacheEntry::Done {
@@ -171,7 +171,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         &mut self,
         key: K,
         checksum: String,
-        fastest_index: usize,
+        fastest_index: Option<usize>,
         results: Vec<Result<AutotuneOutcome, String>>,
     ) {
         if let Err(err) = self.persistent_cache.insert(
